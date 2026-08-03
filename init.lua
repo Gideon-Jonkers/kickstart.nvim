@@ -110,7 +110,7 @@ do
   vim.o.number = true
   -- You can also add relative line numbers, to help with jumping.
   --  Experiment for yourself to see if you like it!
-  -- vim.o.relativenumber = true
+  vim.o.relativenumber = true
 
   -- Enable mouse mode, can be useful for resizing splits for example!
   vim.o.mouse = 'a'
@@ -234,7 +234,162 @@ do
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
-  -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
+  -- My python exucution keymap
+  -- local py_term_buf = 0
+  -- local py_term_win = 0
+  -- vim.keymap.set('n', '<leader>pr', function()
+  --   vim.cmd('write')
+  --   local file_path = vim.fn.expand('%:p')
+  --
+  --   local is_job_alive = false
+  --   if py_term_buf > 0 and vim.api.nvim_buf_is_valid(py_term_buf) then
+  --     local chan_id = vim.b[py_term_buf].terminal_job_id
+  --     -- Check if the shell itself is still running
+  --     if chan_id and vim.fn.jobwait({chan_id}, 0)[1] == -1 then
+  --       is_job_alive = true
+  --     end
+  --   end
+  --
+  --   if is_job_alive then
+  --     -- If shell is alive but window was closed, recreate the split
+  --     if py_term_win == 0 or not vim.api.nvim_win_is_valid(py_term_win) then
+  --       vim.cmd('vsplit')
+  --       py_term_win = vim.api.nvim_get_current_win()
+  --       vim.api.nvim_win_set_buf(py_term_win, py_term_buf)
+  --     end
+  --
+  --     -- Send keys to the permanent shell
+  --     local chan_id = vim.b[py_term_buf].terminal_job_id
+  --     vim.api.nvim_chan_send(chan_id, "python3 '" .. file_path .. "'\13")
+  --   else
+  --     -- First run: Open a regular terminal shell split (e.g. bash/zsh) 
+  --     -- instead of locking it directly to the python execution process.
+  --     vim.cmd("vsplit | terminal")
+  --     py_term_buf = vim.api.nvim_get_current_buf()
+  --     py_term_win = vim.api.nvim_get_current_win()
+  --
+  --     -- Send the initial python command to the newly opened shell
+  --     local chan_id = vim.b[py_term_buf].terminal_job_id
+  --     vim.api.nvim_chan_send(chan_id, "python3 '" .. file_path .. "'\13")
+  -- end    
+  --   -- Keep your cursor safely in your code editor window
+  -- vim.cmd('wincmd p')
+  --   -- vim.cmd('startinsert') if I want to immediately input data to python in the terminal
+  -- end, { desc = '[P]ython [R]un, run current py file'})
+
+  -- My python execution keymap
+  local py_term_buf = 0
+  local py_term_win = 0
+
+  vim.keymap.set('n', '<leader>pr', function()
+    vim.cmd('write')
+    local file_path = vim.fn.expand('%:.')
+
+    -- 1. Determine the Python executable to use
+    local venv_python = './.venv/bin/python'
+    local python_cmd = "python3"
+
+    if vim.fn.executable(venv_python) == 1 then
+      python_cmd = venv_python
+    end
+
+    -- 2. Terminal buffer logic
+    local is_job_alive = false
+    if py_term_buf > 0 and vim.api.nvim_buf_is_valid(py_term_buf) then
+      local chan_id = vim.b[py_term_buf].terminal_job_id
+      -- Check if the shell itself is still running
+      if chan_id and vim.fn.jobwait({chan_id}, 0)[1] == -1 then
+        is_job_alive = true
+      end
+    end
+
+    local cmd_to_send = python_cmd .. " " .. vim.fn.shellescape(file_path) .. "\13"
+
+    if is_job_alive then
+      -- If shell is alive but window was closed, recreate the split
+      if py_term_win == 0 or not vim.api.nvim_win_is_valid(py_term_win) then
+        vim.cmd('split | wincmd J | resize 12')
+        py_term_win = vim.api.nvim_get_current_win()
+        vim.api.nvim_win_set_buf(py_term_win, py_term_buf)
+      end
+      
+      -- Send keys to the permanent shell
+      local chan_id = vim.b[py_term_buf].terminal_job_id
+      vim.api.nvim_chan_send(chan_id, cmd_to_send)
+    else
+      -- First run: Open a regular terminal shell split
+      vim.cmd("split | wincmd J | resize 12 | terminal")
+      py_term_buf = vim.api.nvim_get_current_buf()
+      py_term_win = vim.api.nvim_get_current_win()
+      
+      -- Send the initial python command to the newly opened shell
+      local chan_id = vim.b[py_term_buf].terminal_job_id
+      vim.api.nvim_chan_send(chan_id, cmd_to_send)
+    end    
+   
+    -- Keep your cursor safely in your code editor window
+
+    vim.cmd('wincmd p')
+
+    end, { desc = '[P]ython [R]un, run current py file' }) 
+
+    local cpp_term_buf = 0
+    local cpp_term_win = 0
+
+    vim.keymap.set('n', '<leader>cpr', function()
+      vim.cmd('write')
+
+      local file_path = vim.fn.expand('%:.')
+      local binary_name = vim.fn.expand('%:r') -- Drops the .cpp extension
+
+      -- Build the compile + run command chain
+      local compile_and_run = string.format(
+        "g++ -std=c++20 -Wall -Wextra %s -o %s && ./%s",
+        vim.fn.shellescape(file_path),
+        vim.fn.shellescape(binary_name),
+        vim.fn.shellescape(binary_name)
+      )
+
+      -- Terminal buffer logic
+      local is_job_alive = false
+      if cpp_term_buf > 0 and vim.api.nvim_buf_is_valid(cpp_term_buf) then
+        local chan_id = vim.b[cpp_term_buf].terminal_job_id
+        -- Check if the shell process is still running
+        if chan_id and vim.fn.jobwait({ chan_id }, 0)[1] == -1 then
+          is_job_alive = true
+        end
+      end
+
+      local cmd_to_send = compile_and_run .. "\13"
+
+      if is_job_alive then
+        -- If shell is alive but window was closed, recreate the horizontal split at the bottom
+        if cpp_term_win == 0 or not vim.api.nvim_win_is_valid(cpp_term_win) then
+          vim.cmd('split | wincmd J | resize 12')
+          cpp_term_win = vim.api.nvim_get_current_win()
+          vim.api.nvim_win_set_buf(cpp_term_win, cpp_term_buf)
+        end
+
+        -- Send keys to the existing shell channel
+        local chan_id = vim.b[cpp_term_buf].terminal_job_id
+        vim.api.nvim_chan_send(chan_id, cmd_to_send)
+      else
+        -- First run: Open a persistent terminal shell split
+        vim.cmd('split | wincmd J | resize 12 | terminal')
+        cpp_term_buf = vim.api.nvim_get_current_buf()
+        cpp_term_win = vim.api.nvim_get_current_win()
+
+        -- Send the initial compilation command to the new shell
+        local chan_id = vim.b[cpp_term_buf].terminal_job_id
+        vim.api.nvim_chan_send(chan_id, cmd_to_send)
+      end
+
+      -- Keep focus in your source code window
+      vim.cmd('wincmd p')
+    end, { desc = '[C]pp [P]rogram [R]un in persistent terminal' })
+
+    -- Keep your cursor safely in your code editor window
+      -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
   -- vim.keymap.set("n", "<C-S-h>", "<C-w>H", { desc = "Move window to the left" })
   -- vim.keymap.set("n", "<C-S-l>", "<C-w>L", { desc = "Move window to the right" })
   -- vim.keymap.set("n", "<C-S-j>", "<C-w>J", { desc = "Move window to the lower" })
@@ -692,16 +847,12 @@ do
   --  See `:help lsp-config` for information about keys and how to configure
   ---@type table<string, vim.lsp.Config>
   local servers = {
-    -- clangd = {},
+    clangd = {},
     -- gopls = {},
     -- pyright = {},
     -- rust_analyzer = {},
-    --
-    -- Some languages (like typescript) have entire language plugins that can be useful:
-    --    https://github.com/pmizio/typescript-tools.nvim
-    --
-    -- But for many setups, the LSP (`ts_ls`) will work just fine
-    -- ts_ls = {},
+    
+    basedpyright = {},
 
     stylua = {}, -- Used to format Lua code
 
@@ -784,6 +935,7 @@ do
       local enabled_filetypes = {
         -- lua = true,
         -- python = true,
+        cpp = true,
       }
       if enabled_filetypes[vim.bo[bufnr].filetype] then
         return { timeout_ms = 500 }
@@ -800,8 +952,19 @@ do
       -- Conform can also run multiple formatters sequentially
       -- python = { "isort", "black" },
       --
+      c = {'clang-format'},
+      cpp = {'clang-format'},
+      vhdl = { 'vsg' },
       -- You can use 'stop_after_first' to run the first available formatter from the list
       -- javascript = { "prettierd", "prettier", stop_after_first = true },
+    },
+
+    formatters = {
+      vsg = {
+        command = 'vsg',
+        args = { '--rfix', '-f', '$FILENAME'},
+        stdin = false,
+      },
     },
   }
 
@@ -820,6 +983,8 @@ do
   vim.pack.add { { src = gh 'L3MON4D3/LuaSnip', version = vim.version.range '2.*' } }
   require('luasnip').setup {}
 
+
+
   -- `friendly-snippets` contains a variety of premade snippets.
   --    See the README about individual language/framework/plugin snippets:
   --    https://github.com/rafamadriz/friendly-snippets
@@ -829,6 +994,10 @@ do
 
   -- [[ Autocomplete Engine ]]
   vim.pack.add { { src = gh 'saghen/blink.cmp', version = vim.version.range '1.*' } }
+
+  vim.pack.add{gh 'saghen/blink.compat'}
+  vim.pack.add{gh 'kdheepak/cmp-latex-symbols'}
+
   require('blink.cmp').setup {
     keymap = {
       -- 'default' (recommended) for mappings similar to built-in completions
@@ -871,7 +1040,13 @@ do
     },
 
     sources = {
-      default = { 'lsp', 'path', 'snippets' },
+      default = { 'lsp', 'path', 'snippets', 'latex_symbols' },
+      providers = {
+        latex_symbols = {
+          name = 'latex_symbols',
+          module = 'blink.compat.source',
+        },
+      },
     },
 
     snippets = { preset = 'luasnip' },
